@@ -1,0 +1,27 @@
+{
+  "name": "editcraft-mail-automation",
+  "version": "1.0.0",
+  "description": "24/7 AI Mail Automation System for EditCraftStudio with Gemini AI",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "imapflow": "^1.0.171",
+    "mailparser": "^3.7.2",
+    "nodemailer": "^6.10.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/mailparser": "^3.4.5",
+    "@types/node": "^22.13.1",
+    "@types/nodemailer": "^6.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

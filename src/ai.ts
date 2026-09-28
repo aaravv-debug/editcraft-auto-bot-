@@ -16,6 +16,12 @@ Automation Bot:
 
 Only share the tiers relevant to what the sender asked about, present them in a clean readable list, and offer a call/meeting to discuss their exact requirements.`;
 
+const CANDIDATE_MODELS = ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite'];
+
+async function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function generateEmailReply(senderEmail: string, senderName: string, subject: string, bodyText: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -23,10 +29,6 @@ export async function generateEmailReply(senderEmail: string, senderName: string
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
-    systemInstruction: SYSTEM_INSTRUCTION,
-  });
 
   const prompt = `I want to draft an email in a very professional way. Keep in mind that I am open for freelancing services and open for meetings in a very professional manner.
 Sender: ${senderName} <${senderEmail}>
@@ -38,13 +40,33 @@ ${bodyText}
 
 Please draft the reply answering any questions asked in the email. My name is Aaravsinh Rathod.`;
 
-  const result = await model.generateContent(prompt);
-  const response = result.response;
-  const replyText = response.text()?.trim();
+  let lastError: any = null;
 
-  if (!replyText) {
-    throw new Error('Gemini returned an empty reply.');
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    for (const modelName of CANDIDATE_MODELS) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction: SYSTEM_INSTRUCTION,
+        });
+
+        const result = await model.generateContent(prompt);
+        const replyText = result.response.text()?.trim();
+        if (replyText) {
+          return replyText;
+        }
+      } catch (err: any) {
+        lastError = err;
+        // If 503 high demand spike, brief wait and try next candidate
+        if (err.status === 503) {
+          continue;
+        }
+      }
+    }
+    const backoffMs = attempt * 2000;
+    console.log(`[AI] Google servers busy (503). Retrying in ${backoffMs / 1000}s... (Attempt ${attempt}/4)`);
+    await sleep(backoffMs);
   }
 
-  return replyText;
+  throw new Error(`Failed to generate AI reply after retries: ${lastError?.message || 'Server busy'}`);
 }

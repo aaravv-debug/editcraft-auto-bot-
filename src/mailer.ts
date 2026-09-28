@@ -70,31 +70,45 @@ export async function processUnreadEmails(): Promise<number> {
     const lock = await client.getMailboxLock('INBOX');
 
     try {
-      // Find unread messages
-      const searchResult = await client.search({ seen: false });
-      const messageUids = Array.isArray(searchResult) ? searchResult : [];
+      // Find unread messages by sequence numbers
+      const seqList = await client.search({ seen: false });
+      if (!seqList || seqList.length === 0) {
+        console.log(`[${new Date().toISOString()}] No unread messages found.`);
+        return 0;
+      }
 
-      console.log(`[${new Date().toISOString()}] Found ${messageUids.length} unread message(s).`);
+      console.log(`[${new Date().toISOString()}] Found ${seqList.length} unread message(s).`);
 
-      // Process up to 5 at a time
-      const uidsToProcess = messageUids.slice(0, 5);
+      // 1. Fetch raw messages into memory first (avoids socket command collisions)
+      const seqRange = seqList.slice(-5).join(',');
+      const rawMessages: { uid: number; source: Buffer }[] = [];
 
-      for (const uid of uidsToProcess) {
+      for await (const msg of client.fetch(seqRange, { source: true, uid: true })) {
+        if (msg.source) {
+          rawMessages.push({ uid: msg.uid, source: msg.source });
+        }
+      }
+
+      // 2. Process each message sequentially
+      for (const item of rawMessages) {
         try {
-          const messageData = await client.download(String(uid), undefined, { uid: true });
-          if (!messageData || !messageData.content) continue;
-
-          const parsed = await simpleParser(messageData.content);
+          const parsed = await simpleParser(item.source);
           const fromAddress = parsed.from?.value?.[0]?.address || '';
           const fromName = parsed.from?.value?.[0]?.name || fromAddress;
           const subject = parsed.subject || 'No Subject';
           const messageId = parsed.messageId;
           const bodyText = parsed.text || parsed.html || '';
 
-          // Filter out emails from myself or no sender
-          if (!fromAddress || fromAddress.toLowerCase().includes(myEmail)) {
-            console.log(`Skipping email from myself/empty: ${fromAddress}`);
-            await client.messageFlagsAdd({ uid }, ['\\Seen'], { uid: true });
+          // Filter out emails from myself or Google system alerts
+          const lowerFrom = fromAddress.toLowerCase();
+          if (
+            !lowerFrom ||
+            lowerFrom.includes(myEmail) ||
+            lowerFrom.includes('no-reply') ||
+            lowerFrom.includes('accounts.google.com')
+          ) {
+            console.log(`Skipping notification/system email from: ${fromAddress}`);
+            await client.messageFlagsAdd({ uid: item.uid }, ['\\Seen'], { uid: true });
             continue;
           }
 
@@ -119,12 +133,12 @@ export async function processUnreadEmails(): Promise<number> {
           console.log(`Successfully replied to: ${fromAddress}`);
 
           // 3. Mark as Read in Gmail
-          await client.messageFlagsAdd({ uid }, ['\\Seen'], { uid: true });
+          await client.messageFlagsAdd({ uid: item.uid }, ['\\Seen'], { uid: true });
 
           repliedCount++;
           stats.emailsProcessed++;
         } catch (itemErr: any) {
-          console.error(`Error processing UID ${uid}:`, itemErr.message);
+          console.error(`Error processing UID ${item.uid}:`, itemErr.message);
         }
       }
     } finally {

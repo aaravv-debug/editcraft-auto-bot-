@@ -1,8 +1,9 @@
 import 'dotenv/config';
 import express from 'express';
 import { google } from 'googleapis';
-import { generateAuthUrl, getOAuth2Client, getStoredAuth, isConnected, saveTokens } from './oauth.js';
-import { processUnreadEmails, stats } from './gmailService.js';
+import { generateAuthUrl, getOAuth2Client, getStoredAuth, isConnected as isOAuthConnected, saveTokens } from './oauth.js';
+import { processUnreadEmails as processEmailsImap, stats as imapStats } from './mailer.js';
+import { processUnreadEmails as processEmailsOAuth, stats as oauthStats } from './gmailService.js';
 
 const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);
@@ -10,12 +11,40 @@ const intervalMinutes = parseInt(process.env.CHECK_INTERVAL_MINUTES || '15', 10)
 
 app.use(express.json());
 
+const isAppPasswordMode = !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+
+function getActiveStats() {
+  if (isAppPasswordMode) {
+    return {
+      connected: true,
+      userEmail: process.env.GMAIL_USER || '',
+      emailsProcessed: imapStats.emailsProcessed,
+      lastChecked: imapStats.lastChecked,
+      mode: 'App Password (IMAP/SMTP)',
+    };
+  }
+
+  const auth = getStoredAuth();
+  const oauthActive = isOAuthConnected();
+  return {
+    connected: oauthActive,
+    userEmail: auth?.userEmail || '',
+    emailsProcessed: oauthStats.emailsProcessed,
+    lastChecked: oauthStats.lastChecked,
+    mode: 'Google OAuth2',
+  };
+}
+
+async function runMailCheck(): Promise<number> {
+  if (isAppPasswordMode) {
+    return await processEmailsImap();
+  }
+  return await processEmailsOAuth();
+}
+
 // Main Dashboard
 app.get('/', (req, res) => {
-  const host = req.get('host') || 'localhost:3000';
-  const protocol = host.includes('localhost') ? 'http' : 'https';
-  const auth = getStoredAuth();
-  const connected = isConnected();
+  const current = getActiveStats();
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -52,22 +81,22 @@ app.get('/', (req, res) => {
 <body>
   <div class="card">
     <div class="header">
-      <div class="badge ${connected ? 'active' : 'disconnected'}">
-        <span class="dot"></span> ${connected ? 'Active & Monitoring' : 'Action Required: Connect Gmail'}
+      <div class="badge ${current.connected ? 'active' : 'disconnected'}">
+        <span class="dot"></span> ${current.connected ? 'Active & Monitoring' : 'Action Required: Connect Gmail'}
       </div>
       <h1>EditCraftStudio Mail Bot</h1>
-      <p class="subtitle">AI Lead Assistant Powered by Google Gemini</p>
+      <p class="subtitle">24/7 AI Lead Assistant Powered by Google Gemini</p>
     </div>
 
-    ${connected ? `
+    ${current.connected ? `
       <div class="grid">
         <div class="stat-box">
           <div class="stat-label">Connected Gmail</div>
-          <div class="stat-value" style="font-size: 14px; word-break: break-all;">${auth?.userEmail}</div>
+          <div class="stat-value" style="font-size: 14px; word-break: break-all;">${current.userEmail}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Leads Replied</div>
-          <div class="stat-value">${stats.emailsProcessed}</div>
+          <div class="stat-value">${current.emailsProcessed}</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Check Interval</div>
@@ -75,13 +104,12 @@ app.get('/', (req, res) => {
         </div>
         <div class="stat-box">
           <div class="stat-label">Last Check</div>
-          <div class="stat-value" style="font-size: 13px;">${stats.lastChecked ? stats.lastChecked.toLocaleTimeString() : 'Pending...'}</div>
+          <div class="stat-value" style="font-size: 13px;">${current.lastChecked ? current.lastChecked.toLocaleTimeString() : 'Pending...'}</div>
         </div>
       </div>
 
       <div class="actions">
         <button class="btn btn-primary" onclick="triggerCheck()">⚡ Run Mail Check Now</button>
-        <a class="btn" style="background: #1f2937; color: #9ca3af; font-size: 13px;" href="/auth/google">🔄 Reconnect / Change Google Account</a>
       </div>
     ` : `
       <div style="background: rgba(79, 70, 229, 0.1); border: 1px solid rgba(79, 70, 229, 0.3); border-radius: 12px; padding: 18px; margin: 20px 0; text-align: center;">
@@ -107,7 +135,7 @@ app.get('/', (req, res) => {
     async function triggerCheck() {
       const res = await fetch('/trigger', { method: 'POST' });
       const data = await res.json();
-      alert('Mail check finished! Processed: ' + (data.replied ?? 0) + ' email(s).');
+      alert('Mail check finished! Replied: ' + (data.replied ?? 0) + ' lead(s).');
       window.location.reload();
     }
   </script>
@@ -124,7 +152,7 @@ app.get('/auth/google', (req, res) => {
     const authUrl = generateAuthUrl(host);
     res.redirect(authUrl);
   } catch (err: any) {
-    res.status(500).send(`Error initiating Google Login: ${err.message}. Please verify GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.`);
+    res.status(500).send(`Error initiating Google Login: ${err.message}.`);
   }
 });
 
@@ -142,7 +170,6 @@ app.get('/auth/google/callback', async (req, res) => {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
-    // Get client email address
     const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
     const userInfo = await oauth2.userinfo.get();
     const userEmail = userInfo.data.email || 'unknown@gmail.com';
@@ -150,8 +177,7 @@ app.get('/auth/google/callback', async (req, res) => {
     saveTokens(tokens, userEmail);
     console.log(`[OAuth Success] Connected Gmail account: ${userEmail}`);
 
-    // Trigger immediate background check
-    processUnreadEmails().catch((err) => console.error('Initial check error:', err));
+    runMailCheck().catch((err) => console.error('Initial check error:', err));
 
     res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -184,36 +210,37 @@ app.get('/auth/google/callback', async (req, res) => {
 // Manual trigger API
 app.post('/trigger', async (req, res) => {
   try {
-    const count = await processUnreadEmails();
-    res.json({ success: true, replied: count, stats });
+    const count = await runMailCheck();
+    res.json({ success: true, replied: count, stats: getActiveStats() });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Railway healthcheck
+// Healthcheck
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
 app.listen(port, () => {
+  const current = getActiveStats();
   console.log(`====================================================`);
   console.log(`🚀 EditCraftStudio Mail Bot running on port ${port}`);
+  console.log(`🔒 Mode: ${current.mode}`);
+  console.log(`📧 Connected Account: ${current.userEmail || 'Waiting for login'}`);
   console.log(`⏱️  Check interval: Every ${intervalMinutes} minute(s)`);
-  console.log(`🔗 OAuth Login Route: /auth/google`);
   console.log(`====================================================`);
 
-  // Run initial check if already authenticated
-  if (isConnected()) {
-    processUnreadEmails().catch((err) => console.error('Initial check error:', err));
+  if (current.connected) {
+    runMailCheck().catch((err) => console.error('Initial mail check error:', err));
   }
 
-  // Schedule regular checks
   const intervalMs = intervalMinutes * 60 * 1000;
   setInterval(() => {
-    if (isConnected()) {
+    const state = getActiveStats();
+    if (state.connected) {
       console.log(`[${new Date().toISOString()}] Running scheduled mail check...`);
-      processUnreadEmails().catch((err) => console.error('Interval check error:', err));
+      runMailCheck().catch((err) => console.error('Interval check error:', err));
     }
   }, intervalMs);
 });

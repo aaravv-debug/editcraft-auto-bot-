@@ -20,7 +20,7 @@ function getActiveStats() {
       userEmail: process.env.GMAIL_USER || '',
       emailsProcessed: imapStats.emailsProcessed,
       lastChecked: imapStats.lastChecked,
-      mode: 'App Password (IMAP/SMTP)',
+      mode: 'Verified App Password (IMAP/SMTP)',
     };
   }
 
@@ -82,10 +82,10 @@ app.get('/', (req, res) => {
   <div class="card">
     <div class="header">
       <div class="badge ${current.connected ? 'active' : 'disconnected'}">
-        <span class="dot"></span> ${current.connected ? 'Active & Monitoring' : 'Action Required: Connect Gmail'}
+        <span class="dot"></span> ${current.connected ? 'Active & Monitoring 24/7' : 'Action Required: Connect Gmail'}
       </div>
       <h1>EditCraftStudio Mail Bot</h1>
-      <p class="subtitle">24/7 AI Lead Assistant Powered by Google Gemini</p>
+      <p class="subtitle">AI Lead Assistant Powered by Google Gemini</p>
     </div>
 
     ${current.connected ? `
@@ -104,7 +104,7 @@ app.get('/', (req, res) => {
         </div>
         <div class="stat-box">
           <div class="stat-label">Last Check</div>
-          <div class="stat-value" style="font-size: 13px;">${current.lastChecked ? current.lastChecked.toLocaleTimeString() : 'Pending...'}</div>
+          <div class="stat-value" style="font-size: 13px;">${current.lastChecked ? new Date(current.lastChecked).toLocaleTimeString() : 'Pending...'}</div>
         </div>
       </div>
 
@@ -127,7 +127,7 @@ app.get('/', (req, res) => {
     `}
 
     <div class="info-footer">
-      EditCraftStudio • Aaravsinh Rathod • Powered by Gemini 1.5 Flash
+      EditCraftStudio • Aaravsinh Rathod • Powered by Gemini AI
     </div>
   </div>
 
@@ -135,7 +135,7 @@ app.get('/', (req, res) => {
     async function triggerCheck() {
       const res = await fetch('/trigger', { method: 'POST' });
       const data = await res.json();
-      alert('Mail check finished! Replied: ' + (data.replied ?? 0) + ' lead(s).');
+      alert('Mail check finished! Processed: ' + (data.replied ?? 0) + ' email(s).');
       window.location.reload();
     }
   </script>
@@ -152,14 +152,65 @@ app.get('/auth/google', (req, res) => {
     const authUrl = generateAuthUrl(host);
     res.redirect(authUrl);
   } catch (err: any) {
-    res.status(500).send(`Error initiating Google Login: ${err.message}.`);
+    res.status(500).send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Google OAuth Setup Required</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    body { background: #0b0f19; color: #fff; font-family: 'Plus Jakarta Sans', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+    .box { background: #111827; border: 1px solid #1f2937; padding: 36px; border-radius: 16px; max-width: 520px; line-height: 1.6; }
+    h2 { color: #f59e0b; margin-bottom: 12px; }
+    p { color: #9ca3af; margin-bottom: 16px; font-size: 14px; }
+    code { background: #1f2937; padding: 2px 6px; border-radius: 4px; color: #a5b4fc; }
+    a.btn { display: inline-block; background: #4f46e5; color: white; padding: 10px 18px; text-decoration: none; border-radius: 8px; font-weight: 600; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>Google OAuth Setup Note</h2>
+    <p>Your bot is currently running in <strong>App Password Mode</strong> (connected to <code>${process.env.GMAIL_USER || 'your Gmail'}</code>).</p>
+    <p>If you want to use the <em>Sign in with Google</em> button for other clients, add these two variables in Railway:</p>
+    <p>• <code>GOOGLE_CLIENT_ID</code><br>• <code>GOOGLE_CLIENT_SECRET</code></p>
+    <a class="btn" href="/">Return to Dashboard</a>
+  </div>
+</body>
+</html>`);
   }
 });
 
 // OAuth Callback route
 app.get('/auth/google/callback', async (req, res) => {
   const code = req.query.code as string;
+  const error = req.query.error as string;
   const host = req.get('host');
+
+  if (error) {
+    return res.status(400).send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Google Permission Note</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    body { background: #0b0f19; color: #fff; font-family: 'Plus Jakarta Sans', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+    .box { background: #111827; border: 1px solid #1f2937; padding: 36px; border-radius: 16px; max-width: 500px; text-align: center; }
+    h2 { color: #ef4444; margin-bottom: 12px; }
+    p { color: #9ca3af; margin-bottom: 20px; font-size: 14px; line-height: 1.5; }
+    a.btn { background: #4f46e5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>Permission Denied: ${error}</h2>
+    <p>The login was cancelled or your Google account was not added to the <strong>Test users</strong> list in Google Cloud Console.</p>
+    <p>To allow any user to sign in, set the OAuth Consent Screen to <strong>Publish App</strong> (In Production) in Google Cloud Console.</p>
+    <a class="btn" href="/">Back to Dashboard</a>
+  </div>
+</body>
+</html>`);
+  }
 
   if (!code) {
     return res.status(400).send('Missing authorization code from Google.');

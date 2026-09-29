@@ -306,25 +306,11 @@ app.get('/api/diag', (req, res) => {
   });
 });
 
-const POLLING_INTERVAL_MS = 15000; // Fast 15-second autonomous polling
-
 app.listen(port, '0.0.0.0', () => {
   const current = getActiveStats();
   console.log(`====================================================`);
-  console.log(`🚀 EditCraftStudio Mail Bot running on port ${port}`);
+  console.log(`🚀 EditCraftStudio Mail Bot Dashboard on port ${port}`);
   console.log(`🔒 Mode: ${current.mode}`);
   console.log(`📧 Connected Account: ${current.userEmail || 'Waiting for login'}`);
-  console.log(`⏱️  Check frequency: Every 15 seconds (24/7 autonomous cloud loop)`);
   console.log(`====================================================`);
-
-  if (current.connected) {
-    runSafeEmailCycle().catch((err) => console.error('Initial mail check error:', err));
-  }
-
-  setInterval(() => {
-    const state = getActiveStats();
-    if (state.connected) {
-      runSafeEmailCycle().catch((err) => console.error('Interval check error:', err));
-    }
-  }, POLLING_INTERVAL_MS);
 });

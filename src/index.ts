@@ -102,11 +102,11 @@ app.get('/', (req, res) => {
         </div>
         <div class="stat-box">
           <div class="stat-label">Check Interval</div>
-          <div class="stat-value">Every ${intervalMinutes} min</div>
+          <div class="stat-value">Realtime IDLE + 2 min</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Last Check</div>
-          <div class="stat-value" style="font-size: 13px;">${current.lastChecked ? new Date(current.lastChecked).toLocaleTimeString() : 'Pending...'}</div>
+          <div class="stat-value" style="font-size: 13px;">${current.lastChecked ? new Date(current.lastChecked).toLocaleTimeString() : 'Active Now'}</div>
         </div>
       </div>
 
@@ -114,16 +114,21 @@ app.get('/', (req, res) => {
         <button class="btn btn-primary" onclick="triggerCheck()">⚡ Run Mail Check Now</button>
       </div>
     ` : `
-      <div style="background: rgba(79, 70, 229, 0.1); border: 1px solid rgba(79, 70, 229, 0.3); border-radius: 12px; padding: 18px; margin: 20px 0; text-align: center;">
-        <p style="font-size: 14px; color: #c7d2fe; line-height: 1.5;">
-          Connect your Google account securely with OAuth2. <strong>No passwords are requested or shared.</strong>
+      <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 20px; margin: 20px 0; text-align: left;">
+        <h3 style="color: #ef4444; font-size: 16px; margin-bottom: 8px;">⚙️ Railway Setup Incomplete</h3>
+        <p style="font-size: 13px; color: #d1d5db; line-height: 1.6; margin-bottom: 14px;">
+          Railway cloud needs your credentials in the <strong>Variables</strong> tab so it can run 24/7 while your laptop is shut down.
         </p>
+        <div style="background: #0f172a; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; color: #38bdf8; line-height: 1.8;">
+          <div><strong>GMAIL_USER</strong>: editcraftstudio19@gmail.com</div>
+          <div><strong>GMAIL_APP_PASSWORD</strong>: yanyxrfpsgbefjaq</div>
+          <div><strong>GEMINI_API_KEY</strong>: AQ.Ab8RN6J2Rr...</div>
+        </div>
       </div>
 
       <div class="actions">
-        <a class="btn btn-google" href="/auth/google">
-          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.039l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z"/></svg>
-          Sign in with Google
+        <a class="btn btn-primary" href="https://railway.com/project/eb88fcbd-5f5d-46b7-94cb-4589f3f7a5cb" target="_blank">
+          Open Railway Variables Tab
         </a>
       </div>
     `}

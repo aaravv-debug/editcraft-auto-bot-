@@ -11,7 +11,7 @@ const intervalMinutes = parseInt(process.env.CHECK_INTERVAL_MINUTES || '2', 10);
 
 app.use(express.json());
 
-import { startRealtimeListener, runSafeEmailCycle, getGmailUser, getGmailPass } from './mailer.js';
+import { runSafeEmailCycle, getGmailUser, getGmailPass } from './mailer.js';
 
 function isAppPasswordMode(): boolean {
   const user = getGmailUser();
@@ -106,7 +106,7 @@ app.get('/', (req, res) => {
         </div>
         <div class="stat-box">
           <div class="stat-label">Check Interval</div>
-          <div class="stat-value">Realtime IDLE + 2 min</div>
+          <div class="stat-value">Every 15 seconds</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Last Check</div>
@@ -272,7 +272,7 @@ app.get('/auth/google/callback', async (req, res) => {
 // Manual trigger API
 app.post('/trigger', async (req, res) => {
   try {
-    const count = await runMailCheck();
+    const count = await runSafeEmailCycle();
     res.json({ success: true, replied: count, stats: getActiveStats() });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -305,28 +305,25 @@ app.get('/api/diag', (req, res) => {
   });
 });
 
+const POLLING_INTERVAL_MS = 15000; // Fast 15-second autonomous polling
+
 app.listen(port, '0.0.0.0', () => {
   const current = getActiveStats();
   console.log(`====================================================`);
   console.log(`🚀 EditCraftStudio Mail Bot running on port ${port}`);
   console.log(`🔒 Mode: ${current.mode}`);
   console.log(`📧 Connected Account: ${current.userEmail || 'Waiting for login'}`);
-  console.log(`⏱️  Check interval: Every ${intervalMinutes} minute(s)`);
+  console.log(`⏱️  Check frequency: Every 15 seconds (24/7 autonomous cloud loop)`);
   console.log(`====================================================`);
 
   if (current.connected) {
-    runMailCheck().catch((err) => console.error('Initial mail check error:', err));
-    if (isAppPasswordMode()) {
-      startRealtimeListener();
-    }
+    runSafeEmailCycle().catch((err) => console.error('Initial mail check error:', err));
   }
 
-  const intervalMs = intervalMinutes * 60 * 1000;
   setInterval(() => {
     const state = getActiveStats();
     if (state.connected) {
-      console.log(`[${new Date().toISOString()}] Running 2-minute safety check...`);
       runSafeEmailCycle().catch((err) => console.error('Interval check error:', err));
     }
-  }, intervalMs);
+  }, POLLING_INTERVAL_MS);
 });

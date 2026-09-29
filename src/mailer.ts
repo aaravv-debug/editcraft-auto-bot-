@@ -98,14 +98,26 @@ export async function runSafeEmailCycle(): Promise<number> {
   }
   isProcessing = true;
   try {
-    return await processUnreadEmails();
+    // 30-second timeout guarantee so no mail check ever hangs the bot
+    const result = await Promise.race([
+      processUnreadEmails(),
+      new Promise<number>((_, reject) =>
+        setTimeout(() => reject(new Error('Email check timed out after 30 seconds')), 30000)
+      ),
+    ]);
+    return result;
+  } catch (err: any) {
+    console.error(`[Mail Engine] Cycle error:`, err.message);
+    stats.lastError = err.message;
+    stats.status = 'error';
+    return 0;
   } finally {
     isProcessing = false;
   }
 }
 
 export async function processUnreadEmails(): Promise<number> {
-  const myEmail = (process.env.GMAIL_USER || 'editcraftstudio19@gmail.com').toLowerCase().trim();
+  const myEmail = getGmailUser().toLowerCase();
   stats.status = 'checking';
   stats.lastChecked = new Date();
   stats.lastError = null;
@@ -118,7 +130,6 @@ export async function processUnreadEmails(): Promise<number> {
     const lock = await client.getMailboxLock('INBOX');
 
     try {
-      // Find unread messages by sequence numbers
       const seqList = await client.search({ seen: false });
       if (!seqList || seqList.length === 0) {
         stats.status = 'idle';
@@ -127,8 +138,7 @@ export async function processUnreadEmails(): Promise<number> {
 
       console.log(`[${new Date().toISOString()}] Found ${seqList.length} unread message(s).`);
 
-      // 1. Process from oldest to newest (up to 15 at once)
-      const seqRange = seqList.slice(0, 15).join(',');
+      const seqRange = seqList.slice(0, 10).join(',');
       const rawMessages: { uid: number; source: Buffer }[] = [];
 
       for await (const msg of client.fetch(seqRange, { source: true, uid: true })) {
@@ -137,7 +147,6 @@ export async function processUnreadEmails(): Promise<number> {
         }
       }
 
-      // 2. Process each message sequentially
       for (const item of rawMessages) {
         try {
           const parsed = await simpleParser(item.source);
@@ -147,7 +156,6 @@ export async function processUnreadEmails(): Promise<number> {
           const messageId = parsed.messageId;
           const bodyText = parsed.text || parsed.html || '';
 
-          // Filter out automated notifications, security codes, and system emails
           if (isAutomatedOrIgnored(fromAddress, myEmail)) {
             console.log(`[Ignored] Skipping system/automated email from: ${fromAddress}`);
             await client.messageFlagsAdd({ uid: item.uid }, ['\\Seen'], { uid: true });
@@ -156,15 +164,13 @@ export async function processUnreadEmails(): Promise<number> {
 
           console.log(`[Lead Detected] From: ${fromName} <${fromAddress}> - Subject: "${subject}"`);
 
-          // 1. Generate AI Reply
           const aiReply = await generateEmailReply(fromAddress, fromName, subject, bodyText);
 
-          // 2. Send Reply via SMTP
           const transporter = getSmtpTransport();
           const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
 
           await transporter.sendMail({
-            from: `"Aaravsinh Rathod - EditCraftStudio" <${process.env.GMAIL_USER}>`,
+            from: `"Aaravsinh Rathod - EditCraftStudio" <${getGmailUser()}>`,
             to: fromAddress,
             subject: replySubject,
             text: aiReply,
@@ -174,7 +180,6 @@ export async function processUnreadEmails(): Promise<number> {
 
           console.log(`[Replied] Successfully sent AI proposal to: ${fromAddress}`);
 
-          // 3. Mark as Read in Gmail
           await client.messageFlagsAdd({ uid: item.uid }, ['\\Seen'], { uid: true });
 
           repliedCount++;
@@ -186,51 +191,16 @@ export async function processUnreadEmails(): Promise<number> {
     } finally {
       lock.release();
     }
-
-    await client.logout();
-    stats.status = 'idle';
   } catch (err: any) {
     stats.status = 'error';
     stats.lastError = err.message;
     console.error('Error during mail check cycle:', err.message);
+  } finally {
+    if (client.usable) {
+      await client.logout().catch(() => {});
+    }
+    stats.status = 'idle';
   }
 
   return repliedCount;
-}
-
-export function startRealtimeListener() {
-  const listen = async () => {
-    let client: ImapFlow | null = null;
-    try {
-      client = getImapClient();
-      await client.connect();
-      console.log('⚡ [REALTIME IDLE] Connected to Gmail push notifications.');
-
-      const lock = await client.getMailboxLock('INBOX');
-
-      client.on('exists', (data) => {
-        console.log(`⚡ [REALTIME IDLE] Incoming email event (Inbox count: ${data.count}). Processing...`);
-        runSafeEmailCycle().catch((err) => console.error('[REALTIME] Cycle error:', err));
-      });
-
-      while (client.usable) {
-        try {
-          await client.idle();
-        } catch {
-          break;
-        }
-      }
-
-      lock.release();
-    } catch (err: any) {
-      console.warn('[REALTIME IDLE] Connection dropped:', err.message, '- Auto-reconnecting in 10s...');
-    } finally {
-      if (client && client.usable) {
-        await client.logout().catch(() => {});
-      }
-      setTimeout(listen, 10000);
-    }
-  };
-
-  listen().catch(console.error);
 }

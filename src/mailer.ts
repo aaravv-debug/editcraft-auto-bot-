@@ -82,6 +82,20 @@ function getSmtpTransport() {
   });
 }
 
+let isProcessing = false;
+
+export async function runSafeEmailCycle(): Promise<number> {
+  if (isProcessing) {
+    return 0;
+  }
+  isProcessing = true;
+  try {
+    return await processUnreadEmails();
+  } finally {
+    isProcessing = false;
+  }
+}
+
 export async function processUnreadEmails(): Promise<number> {
   const myEmail = (process.env.GMAIL_USER || 'editcraftstudio19@gmail.com').toLowerCase().trim();
   stats.status = 'checking';
@@ -99,7 +113,7 @@ export async function processUnreadEmails(): Promise<number> {
       // Find unread messages by sequence numbers
       const seqList = await client.search({ seen: false });
       if (!seqList || seqList.length === 0) {
-        console.log(`[${new Date().toISOString()}] No unread messages found.`);
+        stats.status = 'idle';
         return 0;
       }
 
@@ -174,4 +188,41 @@ export async function processUnreadEmails(): Promise<number> {
   }
 
   return repliedCount;
+}
+
+export function startRealtimeListener() {
+  const listen = async () => {
+    let client: ImapFlow | null = null;
+    try {
+      client = getImapClient();
+      await client.connect();
+      console.log('⚡ [REALTIME IDLE] Connected to Gmail push notifications.');
+
+      const lock = await client.getMailboxLock('INBOX');
+
+      client.on('exists', (data) => {
+        console.log(`⚡ [REALTIME IDLE] Incoming email event (Inbox count: ${data.count}). Processing...`);
+        runSafeEmailCycle().catch((err) => console.error('[REALTIME] Cycle error:', err));
+      });
+
+      while (client.usable) {
+        try {
+          await client.idle();
+        } catch {
+          break;
+        }
+      }
+
+      lock.release();
+    } catch (err: any) {
+      console.warn('[REALTIME IDLE] Connection dropped:', err.message, '- Auto-reconnecting in 10s...');
+    } finally {
+      if (client && client.usable) {
+        await client.logout().catch(() => {});
+      }
+      setTimeout(listen, 10000);
+    }
+  };
+
+  listen().catch(console.error);
 }

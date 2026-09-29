@@ -11,9 +11,10 @@ const mailer_js_1 = require("./mailer.js");
 const gmailService_js_1 = require("./gmailService.js");
 const app = (0, express_1.default)();
 const port = parseInt(process.env.PORT || '3000', 10);
-const intervalMinutes = parseInt(process.env.CHECK_INTERVAL_MINUTES || '15', 10);
+const intervalMinutes = parseInt(process.env.CHECK_INTERVAL_MINUTES || '2', 10);
 app.use(express_1.default.json());
 const isAppPasswordMode = !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+const mailer_js_2 = require("./mailer.js");
 function getActiveStats() {
     if (isAppPasswordMode) {
         return {
@@ -270,13 +271,16 @@ app.listen(port, '0.0.0.0', () => {
     console.log(`====================================================`);
     if (current.connected) {
         runMailCheck().catch((err) => console.error('Initial mail check error:', err));
+        if (isAppPasswordMode) {
+            (0, mailer_js_2.startRealtimeListener)();
+        }
     }
     const intervalMs = intervalMinutes * 60 * 1000;
     setInterval(() => {
         const state = getActiveStats();
         if (state.connected) {
-            console.log(`[${new Date().toISOString()}] Running scheduled mail check...`);
-            runMailCheck().catch((err) => console.error('Interval check error:', err));
+            console.log(`[${new Date().toISOString()}] Running 2-minute safety check...`);
+            (0, mailer_js_2.runSafeEmailCycle)().catch((err) => console.error('Interval check error:', err));
         }
     }, intervalMs);
 });

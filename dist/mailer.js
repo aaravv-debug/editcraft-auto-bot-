@@ -4,7 +4,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.stats = void 0;
+exports.runSafeEmailCycle = runSafeEmailCycle;
 exports.processUnreadEmails = processUnreadEmails;
+exports.startRealtimeListener = startRealtimeListener;
 const imapflow_1 = require("imapflow");
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const mailparser_1 = require("mailparser");
@@ -74,6 +76,19 @@ function getSmtpTransport() {
         },
     });
 }
+let isProcessing = false;
+async function runSafeEmailCycle() {
+    if (isProcessing) {
+        return 0;
+    }
+    isProcessing = true;
+    try {
+        return await processUnreadEmails();
+    }
+    finally {
+        isProcessing = false;
+    }
+}
 async function processUnreadEmails() {
     const myEmail = (process.env.GMAIL_USER || 'editcraftstudio19@gmail.com').toLowerCase().trim();
     exports.stats.status = 'checking';
@@ -88,7 +103,7 @@ async function processUnreadEmails() {
             // Find unread messages by sequence numbers
             const seqList = await client.search({ seen: false });
             if (!seqList || seqList.length === 0) {
-                console.log(`[${new Date().toISOString()}] No unread messages found.`);
+                exports.stats.status = 'idle';
                 return 0;
             }
             console.log(`[${new Date().toISOString()}] Found ${seqList.length} unread message(s).`);
@@ -152,4 +167,38 @@ async function processUnreadEmails() {
         console.error('Error during mail check cycle:', err.message);
     }
     return repliedCount;
+}
+function startRealtimeListener() {
+    const listen = async () => {
+        let client = null;
+        try {
+            client = getImapClient();
+            await client.connect();
+            console.log('⚡ [REALTIME IDLE] Connected to Gmail push notifications.');
+            const lock = await client.getMailboxLock('INBOX');
+            client.on('exists', (data) => {
+                console.log(`⚡ [REALTIME IDLE] Incoming email event (Inbox count: ${data.count}). Processing...`);
+                runSafeEmailCycle().catch((err) => console.error('[REALTIME] Cycle error:', err));
+            });
+            while (client.usable) {
+                try {
+                    await client.idle();
+                }
+                catch {
+                    break;
+                }
+            }
+            lock.release();
+        }
+        catch (err) {
+            console.warn('[REALTIME IDLE] Connection dropped:', err.message, '- Auto-reconnecting in 10s...');
+        }
+        finally {
+            if (client && client.usable) {
+                await client.logout().catch(() => { });
+            }
+            setTimeout(listen, 10000);
+        }
+    };
+    listen().catch(console.error);
 }

@@ -7,11 +7,13 @@ import { processUnreadEmails as processEmailsOAuth, stats as oauthStats } from '
 
 const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);
-const intervalMinutes = parseInt(process.env.CHECK_INTERVAL_MINUTES || '15', 10);
+const intervalMinutes = parseInt(process.env.CHECK_INTERVAL_MINUTES || '2', 10);
 
 app.use(express.json());
 
 const isAppPasswordMode = !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+
+import { startRealtimeListener, runSafeEmailCycle } from './mailer.js';
 
 function getActiveStats() {
   if (isAppPasswordMode) {
@@ -284,14 +286,17 @@ app.listen(port, '0.0.0.0', () => {
 
   if (current.connected) {
     runMailCheck().catch((err) => console.error('Initial mail check error:', err));
+    if (isAppPasswordMode) {
+      startRealtimeListener();
+    }
   }
 
   const intervalMs = intervalMinutes * 60 * 1000;
   setInterval(() => {
     const state = getActiveStats();
     if (state.connected) {
-      console.log(`[${new Date().toISOString()}] Running scheduled mail check...`);
-      runMailCheck().catch((err) => console.error('Interval check error:', err));
+      console.log(`[${new Date().toISOString()}] Running 2-minute safety check...`);
+      runSafeEmailCycle().catch((err) => console.error('Interval check error:', err));
     }
   }, intervalMs);
 });

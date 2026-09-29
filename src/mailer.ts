@@ -10,6 +10,15 @@ export interface EmailJobStats {
   status: 'idle' | 'checking' | 'error';
 }
 
+export const recentLogs: string[] = [];
+
+export function logEngine(msg: string) {
+  const line = `[${new Date().toISOString()}] ${msg}`;
+  console.log(line);
+  recentLogs.push(line);
+  if (recentLogs.length > 40) recentLogs.shift();
+}
+
 export const stats: EmailJobStats = {
   lastChecked: null,
   emailsProcessed: 0,
@@ -136,7 +145,7 @@ export async function processUnreadEmails(): Promise<number> {
         return 0;
       }
 
-      console.log(`[${new Date().toISOString()}] Found ${seqList.length} unread message(s).`);
+      logEngine(`Found ${seqList.length} unread message(s): ${JSON.stringify(seqList)}`);
 
       const seqRange = seqList.slice(0, 10).join(',');
       const rawMessages: { uid: number; source: Buffer }[] = [];
@@ -147,6 +156,8 @@ export async function processUnreadEmails(): Promise<number> {
         }
       }
 
+      logEngine(`Fetched ${rawMessages.length} raw message(s).`);
+
       for (const item of rawMessages) {
         try {
           const parsed = await simpleParser(item.source);
@@ -156,15 +167,17 @@ export async function processUnreadEmails(): Promise<number> {
           const messageId = parsed.messageId;
           const bodyText = parsed.text || parsed.html || '';
 
+          logEngine(`Lead: "${subject}" from <${fromAddress}>`);
+
           if (isAutomatedOrIgnored(fromAddress, myEmail)) {
-            console.log(`[Ignored] Skipping system/automated email from: ${fromAddress}`);
+            logEngine(`[Ignored] Skipping system/self email from: ${fromAddress}`);
             await client.messageFlagsAdd({ uid: item.uid }, ['\\Seen'], { uid: true });
             continue;
           }
 
-          console.log(`[Lead Detected] From: ${fromName} <${fromAddress}> - Subject: "${subject}"`);
-
+          logEngine(`[AI] Generating reply for ${fromAddress}...`);
           const aiReply = await generateEmailReply(fromAddress, fromName, subject, bodyText);
+          logEngine(`[AI] Reply generated (${aiReply.length} chars). Sending SMTP...`);
 
           const transporter = getSmtpTransport();
           const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
@@ -178,14 +191,14 @@ export async function processUnreadEmails(): Promise<number> {
             references: messageId,
           });
 
-          console.log(`[Replied] Successfully sent AI proposal to: ${fromAddress}`);
-
+          logEngine(`[SMTP] Sent email to ${fromAddress}. Marking seen...`);
           await client.messageFlagsAdd({ uid: item.uid }, ['\\Seen'], { uid: true });
+          logEngine(`[Success] Finished processing UID ${item.uid}`);
 
           repliedCount++;
           stats.emailsProcessed++;
         } catch (itemErr: any) {
-          console.error(`Error processing UID ${item.uid}:`, itemErr.message);
+          logEngine(`[ERROR] UID ${item.uid} failed: ${itemErr.message} | ${itemErr.stack || ''}`);
         }
       }
     } finally {

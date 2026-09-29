@@ -11,7 +11,7 @@ const intervalMinutes = parseInt(process.env.CHECK_INTERVAL_MINUTES || '2', 10);
 
 app.use(express.json());
 
-import { runSafeEmailCycle, getGmailUser, getGmailPass } from './mailer.js';
+import { runSafeEmailCycle, getGmailUser, getGmailPass, recentLogs } from './mailer.js';
 
 function isAppPasswordMode(): boolean {
   const user = getGmailUser();
@@ -302,6 +302,7 @@ app.get('/api/diag', (req, res) => {
     },
     isAppPasswordMode: isAppPasswordMode(),
     activeStats: getActiveStats(),
+    logs: recentLogs,
   });
 });
 

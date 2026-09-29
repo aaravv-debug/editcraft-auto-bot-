@@ -11,15 +11,19 @@ const intervalMinutes = parseInt(process.env.CHECK_INTERVAL_MINUTES || '2', 10);
 
 app.use(express.json());
 
-const isAppPasswordMode = !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
-
 import { startRealtimeListener, runSafeEmailCycle } from './mailer.js';
 
+function isAppPasswordMode(): boolean {
+  const user = (process.env.GMAIL_USER || '').trim();
+  const pass = (process.env.GMAIL_APP_PASSWORD || '').trim();
+  return !!(user && pass);
+}
+
 function getActiveStats() {
-  if (isAppPasswordMode) {
+  if (isAppPasswordMode()) {
     return {
       connected: true,
-      userEmail: process.env.GMAIL_USER || '',
+      userEmail: (process.env.GMAIL_USER || '').trim(),
       emailsProcessed: imapStats.emailsProcessed,
       lastChecked: imapStats.lastChecked,
       mode: 'Verified App Password (IMAP/SMTP)',
@@ -38,7 +42,7 @@ function getActiveStats() {
 }
 
 async function runMailCheck(): Promise<number> {
-  if (isAppPasswordMode) {
+  if (isAppPasswordMode()) {
     return await processEmailsImap();
   }
   return await processEmailsOAuth();
@@ -275,9 +279,25 @@ app.post('/trigger', async (req, res) => {
   }
 });
 
-// Healthcheck
+// Healthcheck & Diagnostic API
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
+});
+
+app.get('/api/diag', (req, res) => {
+  const hasUser = !!(process.env.GMAIL_USER || '').trim();
+  const hasPass = !!(process.env.GMAIL_APP_PASSWORD || '').trim();
+  const hasKey = !!(process.env.GEMINI_API_KEY || '').trim();
+  res.json({
+    status: 'ok',
+    configured: {
+      GMAIL_USER: hasUser ? (process.env.GMAIL_USER || '').trim() : false,
+      GMAIL_APP_PASSWORD: hasPass ? 'configured (hidden)' : false,
+      GEMINI_API_KEY: hasKey ? 'configured (hidden)' : false,
+    },
+    isAppPasswordMode: isAppPasswordMode(),
+    activeStats: getActiveStats(),
+  });
 });
 
 app.listen(port, '0.0.0.0', () => {
@@ -291,7 +311,7 @@ app.listen(port, '0.0.0.0', () => {
 
   if (current.connected) {
     runMailCheck().catch((err) => console.error('Initial mail check error:', err));
-    if (isAppPasswordMode) {
+    if (isAppPasswordMode()) {
       startRealtimeListener();
     }
   }

@@ -260,7 +260,7 @@ app.post('/trigger', async (req, res) => {
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
     const current = getActiveStats();
     console.log(`====================================================`);
     console.log(`🚀 EditCraftStudio Mail Bot running on port ${port}`);

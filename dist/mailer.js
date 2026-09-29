@@ -15,9 +15,35 @@ exports.stats = {
     lastError: null,
     status: 'idle',
 };
+const IGNORED_DOMAINS_AND_PATTERNS = [
+    'no-reply',
+    'noreply',
+    'security@',
+    'notification',
+    'notifications',
+    'facebookmail.com',
+    'google.com',
+    'accounts.google.com',
+    'n8n.io',
+    'mailer-daemon',
+    'donotreply',
+    'newsletter',
+    'billing@',
+    'updates@',
+    'alerts@',
+    'verify@',
+];
+function isAutomatedOrIgnored(fromAddress, myEmail) {
+    const lower = fromAddress.toLowerCase().trim();
+    if (!lower)
+        return true;
+    if (lower.includes(myEmail))
+        return true;
+    return IGNORED_DOMAINS_AND_PATTERNS.some((pattern) => lower.includes(pattern));
+}
 function getImapClient() {
-    const user = process.env.GMAIL_USER;
-    const pass = process.env.GMAIL_APP_PASSWORD;
+    const user = (process.env.GMAIL_USER || '').trim().toLowerCase();
+    const pass = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
     if (!user || !pass) {
         throw new Error('GMAIL_USER and GMAIL_APP_PASSWORD must be configured.');
     }
@@ -33,8 +59,8 @@ function getImapClient() {
     });
 }
 function getSmtpTransport() {
-    const user = process.env.GMAIL_USER;
-    const pass = process.env.GMAIL_APP_PASSWORD;
+    const user = (process.env.GMAIL_USER || '').trim().toLowerCase();
+    const pass = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
     if (!user || !pass) {
         throw new Error('GMAIL_USER and GMAIL_APP_PASSWORD must be configured.');
     }
@@ -66,8 +92,8 @@ async function processUnreadEmails() {
                 return 0;
             }
             console.log(`[${new Date().toISOString()}] Found ${seqList.length} unread message(s).`);
-            // 1. Fetch raw messages into memory first (avoids socket command collisions)
-            const seqRange = seqList.slice(-5).join(',');
+            // 1. Process from oldest to newest (up to 15 at once)
+            const seqRange = seqList.slice(0, 15).join(',');
             const rawMessages = [];
             for await (const msg of client.fetch(seqRange, { source: true, uid: true })) {
                 if (msg.source) {
@@ -83,17 +109,13 @@ async function processUnreadEmails() {
                     const subject = parsed.subject || 'No Subject';
                     const messageId = parsed.messageId;
                     const bodyText = parsed.text || parsed.html || '';
-                    // Filter out emails from myself or Google system alerts
-                    const lowerFrom = fromAddress.toLowerCase();
-                    if (!lowerFrom ||
-                        lowerFrom.includes(myEmail) ||
-                        lowerFrom.includes('no-reply') ||
-                        lowerFrom.includes('accounts.google.com')) {
-                        console.log(`Skipping notification/system email from: ${fromAddress}`);
+                    // Filter out automated notifications, security codes, and system emails
+                    if (isAutomatedOrIgnored(fromAddress, myEmail)) {
+                        console.log(`[Ignored] Skipping system/automated email from: ${fromAddress}`);
                         await client.messageFlagsAdd({ uid: item.uid }, ['\\Seen'], { uid: true });
                         continue;
                     }
-                    console.log(`Processing lead email from: ${fromName} <${fromAddress}> - Subject: "${subject}"`);
+                    console.log(`[Lead Detected] From: ${fromName} <${fromAddress}> - Subject: "${subject}"`);
                     // 1. Generate AI Reply
                     const aiReply = await (0, ai_js_1.generateEmailReply)(fromAddress, fromName, subject, bodyText);
                     // 2. Send Reply via SMTP
@@ -107,7 +129,7 @@ async function processUnreadEmails() {
                         inReplyTo: messageId,
                         references: messageId,
                     });
-                    console.log(`Successfully replied to: ${fromAddress}`);
+                    console.log(`[Replied] Successfully sent AI proposal to: ${fromAddress}`);
                     // 3. Mark as Read in Gmail
                     await client.messageFlagsAdd({ uid: item.uid }, ['\\Seen'], { uid: true });
                     repliedCount++;

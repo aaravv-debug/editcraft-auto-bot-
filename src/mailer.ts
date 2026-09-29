@@ -89,13 +89,14 @@ function getSmtpTransport() {
   }
 
   return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
+    service: 'gmail',
     auth: {
       user,
       pass,
     },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   });
 }
 
@@ -182,14 +183,19 @@ export async function processUnreadEmails(): Promise<number> {
           const transporter = getSmtpTransport();
           const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
 
-          await transporter.sendMail({
-            from: `"Aaravsinh Rathod - EditCraftStudio" <${getGmailUser()}>`,
-            to: fromAddress,
-            subject: replySubject,
-            text: aiReply,
-            inReplyTo: messageId,
-            references: messageId,
-          });
+          await Promise.race([
+            transporter.sendMail({
+              from: `"Aaravsinh Rathod - EditCraftStudio" <${getGmailUser()}>`,
+              to: fromAddress,
+              subject: replySubject,
+              text: aiReply,
+              inReplyTo: messageId,
+              references: messageId,
+            }),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('SMTP sendMail timed out after 15s')), 15000)
+            ),
+          ]);
 
           logEngine(`[SMTP] Sent email to ${fromAddress}. Marking seen...`);
           await client.messageFlagsAdd({ uid: item.uid }, ['\\Seen'], { uid: true });

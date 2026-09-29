@@ -43,9 +43,17 @@ function isAutomatedOrIgnored(fromAddress: string, myEmail: string): boolean {
   return IGNORED_DOMAINS_AND_PATTERNS.some((pattern) => lower.includes(pattern));
 }
 
+export function getGmailUser(): string {
+  return (process.env.GMAIL_USER || process.env.EMAIL || process.env.GMAIL || process.env.USER_EMAIL || 'editcraftstudio19@gmail.com').trim();
+}
+
+export function getGmailPass(): string {
+  return (process.env.GMAIL_APP_PASSWORD || process.env.APP_PASSWORD || process.env.GMAIL_PASSWORD || process.env.PASSWORD || process.env.GMAIL_PASS || '').replace(/\s+/g, '');
+}
+
 function getImapClient(): ImapFlow {
-  const user = (process.env.GMAIL_USER || '').trim().toLowerCase();
-  const pass = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
+  const user = getGmailUser().toLowerCase();
+  const pass = getGmailPass();
 
   if (!user || !pass) {
     throw new Error('GMAIL_USER and GMAIL_APP_PASSWORD must be configured.');
@@ -64,8 +72,8 @@ function getImapClient(): ImapFlow {
 }
 
 function getSmtpTransport() {
-  const user = (process.env.GMAIL_USER || '').trim().toLowerCase();
-  const pass = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
+  const user = getGmailUser().toLowerCase();
+  const pass = getGmailPass();
 
   if (!user || !pass) {
     throw new Error('GMAIL_USER and GMAIL_APP_PASSWORD must be configured.');

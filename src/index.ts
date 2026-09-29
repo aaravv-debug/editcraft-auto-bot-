@@ -11,11 +11,11 @@ const intervalMinutes = parseInt(process.env.CHECK_INTERVAL_MINUTES || '2', 10);
 
 app.use(express.json());
 
-import { startRealtimeListener, runSafeEmailCycle } from './mailer.js';
+import { startRealtimeListener, runSafeEmailCycle, getGmailUser, getGmailPass } from './mailer.js';
 
 function isAppPasswordMode(): boolean {
-  const user = (process.env.GMAIL_USER || '').trim();
-  const pass = (process.env.GMAIL_APP_PASSWORD || '').trim();
+  const user = getGmailUser();
+  const pass = getGmailPass();
   return !!(user && pass);
 }
 
@@ -23,7 +23,7 @@ function getActiveStats() {
   if (isAppPasswordMode()) {
     return {
       connected: true,
-      userEmail: (process.env.GMAIL_USER || '').trim(),
+      userEmail: getGmailUser(),
       emailsProcessed: imapStats.emailsProcessed,
       lastChecked: imapStats.lastChecked,
       mode: 'Verified App Password (IMAP/SMTP)',
@@ -285,14 +285,19 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/api/diag', (req, res) => {
-  const hasUser = !!(process.env.GMAIL_USER || '').trim();
-  const hasPass = !!(process.env.GMAIL_APP_PASSWORD || '').trim();
+  const user = getGmailUser();
+  const pass = getGmailPass();
   const hasKey = !!(process.env.GEMINI_API_KEY || '').trim();
+  const relevantEnvKeys = Object.keys(process.env).filter((k) =>
+    /gmail|email|pass|key|gemini|mail/i.test(k)
+  );
+
   res.json({
     status: 'ok',
+    detectedEnvKeys: relevantEnvKeys,
     configured: {
-      GMAIL_USER: hasUser ? (process.env.GMAIL_USER || '').trim() : false,
-      GMAIL_APP_PASSWORD: hasPass ? 'configured (hidden)' : false,
+      GMAIL_USER: user || false,
+      GMAIL_APP_PASSWORD: pass ? 'configured (hidden)' : false,
       GEMINI_API_KEY: hasKey ? 'configured (hidden)' : false,
     },
     isAppPasswordMode: isAppPasswordMode(),
